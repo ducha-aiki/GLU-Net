@@ -301,14 +301,14 @@ class GLUNet_model(nn.Module):
             corr4d = self.corr(self.l2norm(c24), self.l2norm(c14))  # first source, then target
             # run match processing model
             corr4d = MutualMatching(corr4d)
-            corr4d = self.NeighConsensus(corr4d.cuda()).cpu()
+            corr4d = self.NeighConsensus(corr4d)#.cuda())#.cpu()
             corr4d = MutualMatching(corr4d)  # size is [b, 1, hsource, wsource, htarget, wtarget]
             corr4 = corr4d.squeeze(1).view(c24.shape[0], c24.shape[2] * c24.shape[3], c14.shape[2], c14.shape[3])
         else:
             corr4 = self.corr(self.l2norm(c24), self.l2norm(c14))
         corr4 = self.l2norm(F.relu(corr4))
         b, c, h, w = corr4.size()
-        if False:#torch.cuda.is_available():
+        if torch.cuda.is_available():
             init_map = torch.FloatTensor(b, 2, h, w).zero_().cuda()
         else:
             init_map = torch.FloatTensor(b, 2, h, w).zero_()
@@ -357,7 +357,7 @@ class GLUNet_model(nn.Module):
         up_flow_4_warping[:, 1, :, :] *= ratio_y
         warp3 = warp(c23, up_flow_4_warping)
         # constrained correlation now
-        corr3 = correlation.FunctionCorrelation(tensorFirst=c13.cuda(), tensorSecond=warp3.cuda()).cpu()
+        corr3 = correlation.FunctionCorrelation(tensorFirst=c13, tensorSecond=warp3)#.cpu()
         corr3 = self.leakyRELU(corr3)
         if self.decoder_inputs == 'corr_flow_feat':
             corr3 = torch.cat((corr3, up_flow4), 1)
@@ -401,7 +401,7 @@ class GLUNet_model(nn.Module):
                     c23_bis = torch.nn.functional.interpolate(c22, size=(int(h_full * ratio), int(w_full * ratio)), mode='area')
                     c13_bis = torch.nn.functional.interpolate(c12, size=(int(h_full * ratio), int(w_full * ratio)), mode='area')
                     warp3 = warp(c23_bis, up_flow3 * div * ratio)
-                    corr3 = correlation.FunctionCorrelation(tensorFirst=c13_bis.cuda(), tensorSecond=warp3.cuda()).cpu()
+                    corr3 = correlation.FunctionCorrelation(tensorFirst=c13_bis, tensorSecond=warp3)#.cpu()
                     corr3 = self.leakyRELU(corr3)
                     if self.decoder_inputs == 'corr_flow_feat':
                         corr3 = torch.cat((corr3, up_flow3), 1)
@@ -426,7 +426,7 @@ class GLUNet_model(nn.Module):
         # level 1/8 of original resolution
         ratio = 1.0 / 8.0
         warp2 = warp(c22, up_flow3*div*ratio)
-        corr2 = correlation.FunctionCorrelation(tensorFirst=c12.cuda(), tensorSecond=warp2.cuda()).cpu()
+        corr2 = correlation.FunctionCorrelation(tensorFirst=c12, tensorSecond=warp2)#.cpu()
         corr2 = self.leakyRELU(corr2)
         if self.decoder_inputs == 'corr_flow_feat':
             corr2 = torch.cat((corr2, up_flow3), 1)
@@ -447,7 +447,7 @@ class GLUNet_model(nn.Module):
         # level 1/4 of original resolution
         ratio = 1.0 / 4.0
         warp1 = warp(c21, up_flow2*div*ratio)
-        corr1 = correlation.FunctionCorrelation(tensorFirst=c11.cuda(), tensorSecond=warp1.cuda()).cpu()
+        corr1 = correlation.FunctionCorrelation(tensorFirst=c11, tensorSecond=warp1)#.cpu()
         corr1 = self.leakyRELU(corr1)
         if self.decoder_inputs == 'corr_flow_feat':
             corr1 = torch.cat((corr1, up_flow2, up_feat2), 1)

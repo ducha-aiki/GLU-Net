@@ -52,7 +52,6 @@ class HardNetPyramid(nn.Module):
         source_model = DenseHardNet()
         weights_dict = torch.load('checkpoint_liberty_with_aug.pth', map_location=torch.device('cpu'))
         source_model.load_state_dict(weights_dict['state_dict'])
-
         modules = OrderedDict()
         modules['level_0'] = nn.Sequential(*source_model.features[:6])
         modules['level_1'] = nn.Sequential(*source_model.features[6:12])
@@ -60,10 +59,10 @@ class HardNetPyramid(nn.Module):
         modules['level_3'] = nn.Sequential(*source_model.features[19:])
         modules['level_3'][0].stride = (2,2)
         modules['level_4'] = nn.Sequential(nn.AvgPool2d(2,2))
-        for i in range(self.n_levels):
+        modules['level_5'] = nn.InstanceNorm2d(1, affine = False, track_running_stats=False)
+        for i in range(self.n_levels+1):
             for param in modules['level_' + str(i)].parameters():
                 param.requires_grad = train
-        print (modules)
         self.__dict__['_modules'] = modules
 
     def forward(self, x, quarter_resolution_only=False, eigth_resolution=False):
@@ -72,8 +71,7 @@ class HardNetPyramid(nn.Module):
         x = x
         if x.size(1) > 1:
             x = x.mean(dim = 1, keepdim = True)
-        std, mean = torch.std_mean(x, dim=(2,3))
-        x = (x - mean) / (std + 1e-8)
+        x = self.__dict__['_modules']['level_5'](x)
 
         if quarter_resolution_only:
             x_full = self.__dict__['_modules']['level_' + str(0)](x)
