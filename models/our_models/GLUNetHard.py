@@ -6,6 +6,7 @@ import sys
 import torch.nn.functional as F
 from models.feature_backbones.VGG_features import VGGPyramid
 from models.feature_backbones.HardNet_features import HardNetPyramid,HardNetPyramid2, HardNetPyramid2N, HardNetPyramid3, HardNetPyramidNoRELU
+from models.feature_backbones.HardNet_features import HardNet8Pyramid2NPCA, HardNet8Pyramid2N
 
 from models.feature_backbones.ResNet_features import ResNetPyramid
 from .mod import CMDTop
@@ -161,6 +162,10 @@ class GLUNet_model(nn.Module):
             self.pyramid = HardNetPyramid2()
         elif pyramid_type == 'HardNet2N':
             self.pyramid = HardNetPyramid2N()
+        elif pyramid_type == 'HardNet82N':
+            self.pyramid = HardNet8Pyramid2N()
+        elif pyramid_type == 'HardNet82PCAN':
+            self.pyramid = HardNet8Pyramid2NPCA()
         elif pyramid_type == 'HardNet3':
             self.pyramid = HardNetPyramid3()
         elif pyramid_type == 'HardNetNoReLU':

@@ -81,6 +81,212 @@ class DenseHardNetNoNorm(nn.Module):
         #x = (x - mean) / (std + 1e-8)
         feats = self.features(x)
         return feats#F.normalize(feats, p=2, dim=1)
+class DenseHardNet8N(nn.Module):
+    """HardNet model definition
+    """
+    def __init__(self, _stride = 2):
+        super(DenseHardNet8N, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(64, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(256, affine=False),
+            nn.ReLU(),
+            nn.Dropout(0.0),
+            nn.Conv2d(256, 512, kernel_size=8,  padding=3, bias=False),
+            nn.BatchNorm2d(512, affine=False),
+        )
+        return
+        
+    def forward(self, input, upscale = False):
+        b,ch,h,w = input.size()
+        x = input
+        if input.size(1) > 1:
+            x = x.mean(dim = 1, keepdim = True)
+        feats = self.features(x)
+        return feats#F.normalize(feats, p=2, dim=1)
+
+class DenseHardNet8NPCA(nn.Module):
+    """HardNet model definition
+    """
+    def __init__(self, _stride = 2):
+        super(DenseHardNet8NPCA, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(64, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(64, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128, affine=False),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(256, affine=False),
+            nn.ReLU(),
+            nn.Dropout(0.0),
+            nn.Conv2d(256, 512, kernel_size=8,  padding=3, bias=False),
+            nn.BatchNorm2d(512, affine=False),
+        )
+        self.comp = nn.Conv2d(512, 128, kernel_size=1,  padding=0, bias=False)
+        self.register_buffer('mean', torch.zeros(512, dtype=torch.float))
+
+        return
+        
+    def forward(self, input, upscale = False):
+        b,ch,h,w = input.size()
+        x = input
+        if input.size(1) > 1:
+            x = x.mean(dim = 1, keepdim = True)
+        feats = F.normalize(self.features(x), p=2, dim=1)
+        pca = self.comp(feats - self.mean.view(1,-1, 1,1).expand_as(feats))
+        return pca
+
+class HardNet8Pyramid2N(nn.Module):
+    def __init__(self, train=False):
+        super().__init__()
+        self.n_levels = 5
+        source_model = DenseHardNet8N()
+        weights_dict = torch.load('hardnet8.pth', map_location=torch.device('cpu'))
+        source_model.load_state_dict(weights_dict, strict=False)
+
+        modules = OrderedDict()
+        modules['level_0'] = deepcopy(nn.Sequential(*source_model.features[:6]))
+        modules['level_0'][0].padding = (1,1)
+        modules['level_1'] = nn.Sequential(*source_model.features[6:12])
+        modules['level_all'] = source_model
+        modules['level_all'].features[0].padding = (2,2)
+        modules['level_5'] = nn.InstanceNorm2d(1, affine = False, track_running_stats=False)
+        for i in range(2):
+            for param in modules['level_' + str(i)].parameters():
+                param.requires_grad = train
+        for param in modules['level_all'].parameters():
+            param.requires_grad = train
+        for param in modules['level_5'].parameters():
+            param.requires_grad = train
+        print (modules)
+        self.__dict__['_modules'] = modules
+
+    def forward(self, x, quarter_resolution_only=False, eigth_resolution=False):
+        outputs = []
+        b,ch,h,w = x.size()
+        x = x
+        if x.size(1) > 1:
+            x = x.mean(dim = 1, keepdim = True)
+        x = self.__dict__['_modules']['level_5'](x)
+        if quarter_resolution_only:
+            x_quarter = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_quarter)
+        elif eigth_resolution:
+            x_full = self.__dict__['_modules']['level_0'](x)
+            outputs.append(x_full)
+            x_quarter = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_quarter)
+            if float(torch.__version__[:3]) >= 1.6:
+                x = torch.nn.functional.interpolate(x, scale_factor=0.5, mode='area', recompute_scale_factor=True)
+            else:
+                x = torch.nn.functional.interpolate(x, scale_factor=0.5, mode='area')
+            x_eight = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_eight)
+        else:
+            x0 = self.__dict__['_modules']['level_0'](x)
+            outputs.append(x0)
+            x1 = self.__dict__['_modules']['level_1'](x0)
+            outputs.append(x1)
+            x_down = x
+            for i in range(0, self.n_levels):
+                x = self.__dict__['_modules']['level_all'](x_down)
+                outputs.append(x)
+                if float(torch.__version__[:3]) >= 1.6:
+                    x_down = torch.nn.functional.interpolate(x_down, scale_factor=0.5, mode='area', recompute_scale_factor=True)
+                else:
+                    x_down = torch.nn.functional.interpolate(x_down, scale_factor=0.5, mode='area')
+        return outputs
+class HardNet8Pyramid2NPCA(nn.Module):
+    def __init__(self, train=False):
+        super().__init__()
+        self.n_levels = 5
+        source_model = DenseHardNet8NPCA()
+        weights_dict = torch.load('densehardnet8pca.pth', map_location=torch.device('cpu'))
+        source_model.load_state_dict(weights_dict, strict=True)
+
+        modules = OrderedDict()
+        modules['level_0'] = deepcopy(nn.Sequential(*source_model.features[:6]))
+        modules['level_0'][0].padding = (1,1)
+        modules['level_1'] = nn.Sequential(*source_model.features[6:12])
+        modules['level_all'] = source_model
+        modules['level_all'].features[0].padding = (2,2)
+        modules['level_5'] = nn.InstanceNorm2d(1, affine = False, track_running_stats=False)
+        for i in range(2):
+            for param in modules['level_' + str(i)].parameters():
+                param.requires_grad = train
+        for param in modules['level_all'].parameters():
+            param.requires_grad = train
+        for param in modules['level_5'].parameters():
+            param.requires_grad = train
+        print (modules)
+        self.__dict__['_modules'] = modules
+
+    def forward(self, x, quarter_resolution_only=False, eigth_resolution=False):
+        outputs = []
+        b,ch,h,w = x.size()
+        x = x
+        if x.size(1) > 1:
+            x = x.mean(dim = 1, keepdim = True)
+        x = self.__dict__['_modules']['level_5'](x)
+        if quarter_resolution_only:
+            x_quarter = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_quarter)
+        elif eigth_resolution:
+            x_full = self.__dict__['_modules']['level_0'](x)
+            outputs.append(x_full)
+            x_quarter = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_quarter)
+            if float(torch.__version__[:3]) >= 1.6:
+                x = torch.nn.functional.interpolate(x, scale_factor=0.5, mode='area', recompute_scale_factor=True)
+            else:
+                x = torch.nn.functional.interpolate(x, scale_factor=0.5, mode='area')
+            x_eight = self.__dict__['_modules']['level_all'](x)
+            outputs.append(x_eight)
+        else:
+            x0 = self.__dict__['_modules']['level_0'](x)
+            outputs.append(x0)
+            x1 = self.__dict__['_modules']['level_1'](x0)
+            outputs.append(x1)
+            x_down = x
+            for i in range(0, self.n_levels):
+                x = self.__dict__['_modules']['level_all'](x_down)
+                outputs.append(x)
+                if float(torch.__version__[:3]) >= 1.6:
+                    x_down = torch.nn.functional.interpolate(x_down, scale_factor=0.5, mode='area', recompute_scale_factor=True)
+                else:
+                    x_down = torch.nn.functional.interpolate(x_down, scale_factor=0.5, mode='area')
+        return outputs
     
 class HardNetPyramidNoRELU(nn.Module):
     def __init__(self, train=False):
